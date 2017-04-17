@@ -1,0 +1,2 @@
+a simple compiler for ROP gadgets. Will be optimized for CFI-based attacks. 
+For research @ Brown University.

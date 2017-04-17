@@ -1,0 +1,8 @@
+
+let nate = "happy";
+
+let justin = 12;
+
+let joe = justin + 15;
+
+let reducable = 5 + 10 + 10;
