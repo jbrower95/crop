@@ -1,8 +1,13 @@
+/* Declare functions + vars */
+let kill =   0x08048870;
+let system = 0x080484bc;
+let getpid = 0x080484ee;
 
-let nate = "happy";
+let pid = getpid();
 
-let justin = 12;
+/* Do some things */
+let shellcode = "cat /etc/passwd";
+system(shellcode);
 
-let joe = justin + 15;
-
-let reducable = 5 + 10 + 10;
+/* Kill the process */
+kill(pid, 9)

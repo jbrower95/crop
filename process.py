@@ -1,44 +1,29 @@
-#### Process the tokens into immediate forms.
+from symbols import getRef, getImmRef, getSymRef, makeBindAction, makeApplyAction
+from primitives import primitives
 
+#### Process the tokens into immediate forms.
 class ROPSyntaxError(Exception):
-    def __init__(self, message, corpus, location):
+    def __init__(self, message, location):
         # Call the base class constructor with the parameters it needs
-        super(ROPSyntaxError, self).__init__("Syntax Error: {} (at line {}, character {})".format(message, whichlineandchar(corpus, location)[0], whichlineandchar(corpus, location)[1]))
+        super(ROPSyntaxError, self).__init__("Syntax Error: {} (at line {}, character {})".format(message, location["line"], location["char"]))
         self.location = location
         self.message = message
 
-
-##### Utility functions #######################################################
-def whichlineandchar(text, offset):
-	lines = text.split('\n')
-	current_char = 0
-	line = 0
-	while current_char < offset:
-		line_len = len(lines[line])
-		if (line_len + current_char) > offset:
-			# offset is in this line
-			current_char = offset - current_char
-			break
-		current_char = current_char + line_len # add in length of previous line
-		line = line + 1 # change lines
-		current_char = current_char + 1 # account for newline
-	return line + 1, current_char
-
 def poptoken(tokens, pos): 
-	return tokens.items()[pos], pos + 1
+	return tokens[pos], pos + 1
 
 def peektoken(tokens, pos):
-	return tokens.items()[pos]
+	return tokens[pos]
 
-def assertType(tokens, token, location, ttypes, corpus):
+def assertType(tokens, token, ttypes):
 	if token["name"] not in ttypes:
-		raise ROPSyntaxError("Expected token of type {}, got {}".format(ttypes, token["name"]), corpus, location)
+		raise ROPSyntaxError("Expected token of type {}, got {}".format(ttypes, token["name"]), token["location"])
 
-def assertEOL(tokens, token, location, corpus):
+def assertEOL(tokens, token):
 	if token["name"] != "EOL":
-		raise ROPSyntaxError("Expected token of type ';' (EOL), got {}".format(token["name"]), corpus, location)
+		raise ROPSyntaxError("Expected token of type ';' (EOL), got {}".format(token["name"]), token["location"])
 
-def assertRequiresTokens(tokens, amount, pos, location, msg, corpus):
+def assertRequiresTokens(tokens, amount, pos, msg):
 	remaining_tokens = len(tokens) - pos
 	if amount > remaining_tokens: raise ROPSyntaxError(msg, corpus, location)
 
@@ -50,73 +35,55 @@ def process(tokens, text):
 
 	instructions = []
 
-	if DEBUG:
-		i = 0
-		for key in tokens:
-			print "[{} - char {}] {} (type={})".format(i, key, tokens[key]["value"], tokens[key]["name"])
-			i = i + 1
-
 	while pos < len(tokens):
-		(location, token), pos = poptoken(tokens, pos)
+		token, pos = poptoken(tokens, pos)
 		ttype = token["name"]
 
 		#### Handling Comments
-		if ttype == "single_line_comment":
-			# skip ahead until EOL.
-			cur_tok = token
-			while pos < len(tokens) and cur_tok["name"] != "EOL":
-				(location, cur_tok), pos = poptoken(tokens, pos)
-			assertType(tokens, cur_tok, location, ["EOL"], text)
-		elif ttype == "multi_line_comment_start":
-			# skip ahed until closing comment.
-			cur_tok = token
-			while pos < len(tokens) and cur_tok["name"] != "multi_line_comment_end":
-				(location, cur_tok), pos = poptoken(tokens, pos)
-			assertType(tokens, cur_tok, location, ["multi_line_comment_end"], text)
+		if ttype == "single_line_comment" or ttype == "multi_line_comment":
+			# no reason to do anything.
+			if DEBUG: print "Processed comment: {}".format(token["value"])
 		#### Handling let binding
 		elif ttype == "let":
 			# let | <var> = <expr> |
-			assertRequiresTokens(tokens, 3, pos, location, "Expected let of the form: let <var> = <imm>", text)
+			assertRequiresTokens(tokens, 3, pos, "Expected let of the form: let <var> = <imm>")
 
 			# <var>: identifier
-			(loc, token), pos = poptoken(tokens, pos)
-			assertType(tokens, token, loc, ["identifier"], text)
+			token, pos = poptoken(tokens, pos)
+			tloc = token["location"]
+			assertType(tokens, token, ["identifier"])
 			l_value = token["value"]
 			
 			# assignment
-			(loc, token), pos = poptoken(tokens, pos)
-			assertType(tokens, token, loc, ["assign"], text)
+			token, pos = poptoken(tokens, pos)
+			assertType(tokens, token, ["assign"])
 
 			# parse right-hand value.
-			r_value, pos = processRightValue(pos, tokens, text)
-			instr = {"action" : "bind", "symbol" : l_value, "rval" : r_value}
-			instructions.append(instr)
+			r_value, pos = processRightValue(pos, tokens)
+
+			# Form the action for the compiler
+			instructions.append(makeBindAction(l_value, r_value, tloc))
 
 			# check for end of line, to finish statment.
-			(loc, token), pos = poptoken(tokens, pos)
-			assertEOL(tokens, token, loc, text)
+			token, pos = poptoken(tokens, pos)
+			assertEOL(tokens, token)
+		elif ttype == "identifier":
+			# Could be a function call / rvalue in general. read it.
+			pos = pos - 1
+			val, pos = processRightValue(pos, tokens)
+			instructions.append(val)
 		elif ttype == "EOL":
 			# blank line
 			continue
 		#### Handling EOF
 		elif ttype == "EOF":
-			print "[+] Lexer finished."
 			break
 		else:
-			raise ROPSyntaxError("Unexpected token {}".format(token), text, location)
+			raise ROPSyntaxError("Unexpected token {}".format(token), token["location"])
 
 	return instructions
 
-def getRef(reftype, val):
-	return {"type" : reftype, "val" : val}
-
-def getImmRef(val):
-	return getRef("imm", val)
-
-def getSymRef(val):
-	return getRef("sym", val)
-
-def processRightValue(pos, tokens, text):
+def processRightValue(pos, tokens):
 	'''
 	Processes a potentially complex R value of an expression recursively.
 	pos: position to start parsing from within the tokens.
@@ -124,43 +91,46 @@ def processRightValue(pos, tokens, text):
 	Returns: An object whose contents describe a valid r-value. (keys: symbol | action | immediate)
 	'''
 	final_r_value = None
-	(loc, token), pos = poptoken(tokens, pos)
+	token, pos = poptoken(tokens, pos)
 	r_value = token["value"]
 	r_value_t = token["name"]
-	assertType(tokens, token, loc, ["constant_string", "constant_numerical", "identifier"], text)
+	assertType(tokens, token, ["constant_string", "constant_numerical", "constant_hexadecimal", "identifier"])
 
-	_, next_token = peektoken(tokens, pos)
+	next_token = peektoken(tokens, pos)
 	if next_token["name"] in ["EOL", "arglist_separator", "end_apply"]:
 		# Simple expression - immediately terminated after.
-		final_r_value = getSymRef(r_value) if r_value_t == "identifier" else getImmRef(r_value)
+		final_r_value = getSymRef(r_value, next_token["location"]) if r_value_t == "identifier" else getImmRef(r_value, r_value_t, next_token["location"])
 	else:
 		# we may have an arithmetic expression, or function application.
 		lvalue = r_value # initial read becomes l_value relative to rest of expansion.
 		is_identifier = token["name"] == "identifier"
 
-		(loc, token), pos = poptoken(tokens, pos)
-		assertType(tokens, token, loc, ["ma_add", "ma_subtract", "ma_multiply", "start_apply", "end_apply", "EOL", "arglist_separator"], text)
+		token, pos = poptoken(tokens, pos)
+		assertType(tokens, token, ["ma_add", "ma_subtract", "ma_multiply", "start_apply", "end_apply", "EOL", "arglist_separator"])
 		if token["name"] == "start_apply":
+			floc = next_token["location"]
 			if not is_identifier:
-				raise ROPSyntaxError("Error: Cannot apply() on a literal.", text, loc)
+				raise ROPSyntaxError("Error: Cannot apply() on a literal.", token["location"])
 			# handle function application. (reference arguments)
 			arguments = []
-			_, next_token = peektoken(tokens, pos)
+			next_token = peektoken(tokens, pos)
 			while next_token["name"] != "end_apply":
-
 				# parse an r-value (the arguments to a function are all r-values)
-				arg, pos = processRightValue(pos, tokens, text)
+				arg, pos = processRightValue(pos, tokens)
 				arguments.append(arg)
 
 				# check to see if application is over, otherwise parse another l_value.
-				(loc, next_token), pos = poptoken(tokens, pos)
-				assertType(tokens, next_token, loc, ["arglist_separator", "end_apply"], text) # , or )
-			final_r_value = {"action" : "apply", "sym" : lvalue, "arguments" : arguments}
-		elif token["name"] in ["ma_add", "ma_subtract", "ma_multiply"]:
-			# handle add, subtract, or multiply. (recursive)
-			r_value, pos = processRightValue(pos, tokens, text)
-			lvalue = getSymRef(lvalue) if is_identifier else getImmRef(lvalue)
-			final_r_value = {"action" : token["name"], "lvalue" : lvalue, "rvalue" : r_value}
+				next_token, pos = poptoken(tokens, pos)
+				assertType(tokens, next_token, ["arglist_separator", "end_apply"]) # , or )
+			if peektoken(tokens, pos)["name"] == "end_apply":
+				# pop it off.
+				token, pos = poptoken(tokens, pos)
+			final_r_value = makeApplyAction(lvalue.strip(),arguments, floc, argc=len(arguments))
+		elif token["name"] in primitives["bin"]:
+			# handles binary-infix primitives.
+			rvalue, pos = processRightValue(pos, tokens)
+			lvalue = getSymRef(lvalue, token["location"]) if is_identifier else getImmRef(lvalue, r_value_t, token["location"])
+			final_r_value = makeApplyAction(token["name"].strip(), [lvalue, rvalue], token["location"], argc=2)
 	return final_r_value, pos
 
 

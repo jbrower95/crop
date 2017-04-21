@@ -69,7 +69,7 @@ grammar = {
 		},
 		{
 			"name" : "identifier",
-			"regex" : r"\s(?!let)(?!if)[a-z]+\s"
+			"regex" : r"(\s+|\w|^)(?!let)(?!if)[a-z]+(\s*)"
 		}
 	]
 }
