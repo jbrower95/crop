@@ -55,7 +55,7 @@ def propogateConstants(actions, DEBUG=False):
 		if action["type"] == "action" and action["action"] == "bind":
 			symbol = action["sym"]
 			# check to see if it is a constant, replacable.
-			if isImm(action["rvalue"]):
+			if isImm(action["rvalue"]) and action["rvalue"]["dtype"] != "constant_string":
 				action["constant"] = True
 				hits = 0
 				for j in range(i+1, len(actions)):

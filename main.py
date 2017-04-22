@@ -5,7 +5,8 @@ from tokenize import tokenize
 from flatten import flatten
 from validate import validate
 from analyze import generateSymTable, propogateConstants
-from ropcompile import ropcompile
+from ropcompile import precompile_payload, compile_payload, ROPCompilationError
+from gadgets import gadgets
 from copy import deepcopy
 from tests import run_test_suite
 from symbols import *
@@ -45,7 +46,7 @@ def main(args):
 	else:
 		# Regular mode.
 		corpus = args[0]
-		fname = corpus
+		fname = args[1]
 		
 		# Load Text
 		with open(corpus, "r") as f:
@@ -118,23 +119,31 @@ def main(args):
 		except ROPSyntaxError as e:
 			print e
 			return
-		# Given the actions, find ROP sequences that satisfy these actions.
-		sequences = None
-		payload = ropcompile(actions, sym_table, sequences, DEBUG=DEBUG)
-		printStackPayload(payload, 0)
 
-def removeVerboseEntries(action):
-	'''
-	Removes annoying entries like 'loc'.
-	'''
-	action = deepcopy(action)
-	if "loc" in action:
-		del action["loc"]
-	for key in action:
-		if type(action[key]) is dict:
-			action[key] = removeVerboseEntries(action[key])
-		if type(action[key]) is list:
-			action[key] = [removeVerboseEntries(x) for x in action[key]]
-	return action
+		try:
+			# Given the actions, find ROP sequences that satisfy these actions.
+			sequences = None
+			payload = precompile_payload(actions, sym_table, sequences, DEBUG=DEBUG)
+			if DEBUG:
+				printStackPayload(payload)
+			print "[+] Payload Generation: Precompiled payload. "
+
+			# load the gadgets from the binary.
+			binary_gadgets = gadgets(fname)
+			num_gadgets_total = sum([len(binary_gadgets[k]) for k in binary_gadgets])
+			assert num_gadgets_total > 0, "Got no gadgets. Was your binary path ({}) correct?".format(fname)
+
+			print "[+] Loaded gadgets from {} (got {})".format(fname, num_gadgets_total)
+
+			# compile the actual payload.
+			full_payload = compile_payload(payload, binary_gadgets, DEBUG=DEBUG)
+			print "[+] Compiled final payload."
+
+			if DEBUG:
+				printStackPayload(payload)
+		except ROPCompilationError as e:
+			print e
+			return
+
 if __name__ == "__main__":
 	main(sys.argv[1:])
