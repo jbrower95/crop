@@ -38,6 +38,7 @@ def process(tokens, text):
 	while pos < len(tokens):
 		token, pos = poptoken(tokens, pos)
 		ttype = token["name"]
+		print "Current token: " + ttype;
 
 		#### Handling Comments
 		if ttype == "single_line_comment" or ttype == "multi_line_comment":
@@ -67,21 +68,59 @@ def process(tokens, text):
 			# check for end of line, to finish statment.
 			token, pos = poptoken(tokens, pos)
 			assertEOL(tokens, token)
-		elif ttype == "identifier":
-			# Could be a function call / rvalue in general. read it.
-			pos = pos - 1
-			val, pos = processRightValue(pos, tokens)
-			instructions.append(val)
 		elif ttype == "EOL":
 			# blank line
 			continue
-		#### Handling EOF
 		elif ttype == "EOF":
 			break
 		else:
-			raise ROPSyntaxError("Unexpected token {}".format(token), token["location"])
+			# Could be a function call / rvalue in general. read it.
+			# -1 to include the current token in this parse.
+			val, pos = processRightValue(pos - 1, tokens)
+			instructions.append(val)
 
 	return instructions
+
+
+def processArgumentList(pos, tokens):
+	'''
+	Process a list of expressions, followed by ",".
+	'''
+	exprs = []
+
+	if peektoken(tokens, pos)["type"] != "end_apply":
+		# no exprs in expr list.
+		return pos + 1, exprs
+
+	# Read at least one expression. <expr>
+	expr, pos = processExpression(pos, tokens)
+	exprs.append(expr)
+
+	# Potentially a variable number of exprs. <expr>, <expr>
+	while peektoken(tokens, pos)["type"] != "end_apply":
+		if peektoken(tokens, pos)["type"] == "arglist_separator":
+			# Skip over the ','.
+			_, pos = poptoken(tokens, pos)
+		else:
+			# Read an expression.
+			expr, pos = processExpression(pos, tokens)
+			exprs.append(expr)
+	return exprs
+
+def processExpression(pos, tokens):
+	'''
+	Processes a potentially complex R value of an expression recursively.
+	pos: position to start parsing from within the tokens.
+
+	Returns: An object whose contents describe a valid r-value. (keys: symbol | action | immediate)
+	'''
+	final_r_value = None
+	token, pos = poptoken(tokens, pos)
+	print "Processing: {}".format(token)
+	r_value = token["value"] if "value" in token else ""
+	r_value_t = token["name"];
+	assertType(tokens, token, ["constant_string", "constant_numerical", "constant_hexadecimal", "identifier"])
+
 
 def processRightValue(pos, tokens):
 	'''
@@ -92,6 +131,7 @@ def processRightValue(pos, tokens):
 	'''
 	final_r_value = None
 	token, pos = poptoken(tokens, pos)
+	print "Processing: {}".format(token)
 	r_value = token["value"]
 	r_value_t = token["name"]
 	assertType(tokens, token, ["constant_string", "constant_numerical", "constant_hexadecimal", "identifier"])

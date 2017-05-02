@@ -25,11 +25,11 @@ def rts(ref):
 		return ref["val"]
 
 def rtsse(se):
-	ropdata = "{} [{}]".format(se["roptype"], se["ropdata"]) if "ropdata" in se else se["roptype"]
-	return "[{: <20} {: >10}]".format(rts(se), ropdata)
+	ropdata = "{} [{}]".format(se["roptype"], rts(se["ropdata"])) if "ropdata" in se else se["roptype"]
+	return "[{: <15} {: >20}]".format(rts(se), ropdata)
 
 def rtsse_short(se):
-	ropdata = "{}({})".format(se["roptype"], se["ropdata"]) if "ropdata" in se else se["roptype"]
+	ropdata = "{}({})".format(se["roptype"], rts(se["ropdata"])) if "ropdata" in se else se["roptype"]
 	return "{}".format(ropdata)
 
 def getImmRef(val, dtype, loc):

@@ -1,0 +1,46 @@
+(* Support C-style comments. *)
+@@nameguard :: False
+@@whitespace :: /[\t\n\s]+/
+@@comments :: /\/\*(.|\s|\n)*?\*\// 
+@@eol_comments :: /\/\/.*?$/ 
+
+
+(* value types. keep it simple. *)
+EOL = ";" ;
+
+constant_string = /".*"/ ;
+constant_numerical = /[0-9]+/ ;
+constant_hexadecimal = /0x([a-f]|[A-F]|[0-9])+/ ;
+identifier =  /[a-zA-Z][A-Za-z0-9_]*/ ;
+
+add_expr = expr '+' expr ;
+sub_expr = expr '-' expr ;
+mul_expr = expr '*' expr ;
+div_expr = expr '/' expr ;
+
+type = ("int" | "string" | "float") ;
+
+ARGLIST 			 = '(' [@+:complex_expr {',' @+:complex_expr}*] ')' ;
+function_application = id:expr args:ARGLIST ;
+
+inline_application   = bin_function:(add_expr | sub_expr | mul_expr | div_expr);
+function_declaration = "func" id:identifier "=" rval:complex_expr ":" type;
+
+bind = 'let' id:identifier '=' rval:complex_expr ;
+
+expr = ( constant_string 
+		| constant_hexadecimal 
+		| constant_numerical 
+		| identifier
+	   );
+
+complex_expr =  inline_application | function_application | expr;
+
+line = [bind | function_application | function_declaration] EOL;
+
+start = @+:line { @+:line }+  ;
+
+
+ 
+
+

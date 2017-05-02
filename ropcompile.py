@@ -1,6 +1,7 @@
 from symbols import *
 from copy import deepcopy
-from operator import attrgetter
+from operator import itemgetter
+from primitives import primitives
 
 class ROPCompilationError(Exception):
     def __init__(self, message):
@@ -13,7 +14,10 @@ def unusedOrConstant(expr):
 
 def sym2retaddr(sym):
 	sym = deepcopy(sym)
-	sym["roptype"] = "RET_ADDR"
+	print sym
+	if sym["dtype"] == "constant_numerical": 
+		sym["dtype"] = "constant_hexadecimal"
+	sym["roptype"] = "CALL"
 	return sym
 
 def sym2emptyref(sym, val="<empty>"):
@@ -30,7 +34,7 @@ def sym2arg(sym, argi):
 def imm2esplift(sym):
 	sym = deepcopy(sym)
 	sym["roptype"] = "ESP_LFT"
-	sym["ropdata"] = sym["val"]
+	sym["ropdata"] = sym
 	return sym
 
 def emptyAddrRef():
@@ -39,13 +43,25 @@ def emptyAddrRef():
 def emptyPaddingRef():
 	return sym2emptyref(getImmRef(0, "constant_hexadecimal", None), val="<padding>")
 
+def dataReadRef(fromPlace):
+	sym["type"] = "builtin"
+	sym["roptype"] = "G_READ"
+	sym["ropdata"] = fromPlace
+	return sym
+
+def dataWriteRef(fromPlace, intoPlace):
+	sym = deepcopy(intoPlace)
+	sym["roptype"] = "G_WRITE"
+	sym["ropdata"] = fromPlace
+	return sym
+
 def emptyRef():
 	return sym2emptyref(getImmRef(0, "constant_hexadecimal", None))
 
 def imm2dataRef(sym):
 	sym = deepcopy(sym)
 	sym["roptype"] = "DATA"
-	sym["ropdata"] = sym["val"]
+	sym["ropdata"] = sym
 	return sym
 
 def imm2constRef(sym):
@@ -60,6 +76,17 @@ def dataRef(idx):
 def esplift(amt):
 	return imm2esplift(getImmRef(amt, "constant_numerical", None))
 
+def stack_entry_gadget(gtype, vaddr):
+	sym = getImmRef(vaddr, "constant_hexadecimal", None)
+	sym["roptype"] = "GADGET"
+	sym["ropdata"] = getImmRef(gtype, "string", None)
+	return sym
+
+def resolvedEspLift(gadget):
+	return {
+		"roptype" : ""
+	}
+
 def reserve(stack, upTo):
 	print "[stack] Reserving stack space up to index {}.".format(upTo)
 	while len(stack) <= upTo:
@@ -67,6 +94,12 @@ def reserve(stack, upTo):
 
 def printStackInfo(stack):
 	print "[stack] size = {}".format(len(stack))
+
+def isBuiltIn(sym):
+	for ftype in primitives:
+		if sym["val"] in primitives[ftype]:
+			return ftype
+	return ""
 
 def precompile_payload(actions, symtable, sequences, DEBUG=False):
 	'''
@@ -117,23 +150,35 @@ def precompile_payload(actions, symtable, sequences, DEBUG=False):
 				# See if anything needs to be bound
 				print "[compile] processing {}".format(rts(action))
 				reserve(stack, next_gadget + 1 + len(action["args"]))
-				stack[next_gadget] = sym2retaddr(action["sym"]) # addr to call.
-				if action["args"]:
-					argbase = next_gadget + 2
-					for idx, arg in enumerate(action["args"]):
-						if arg["type"] == "sym" and arg["val"] in dataTable:
-							print "[compile] Resolving str variable {}".format(rts(arg))
-							print "[compile] * stored at payload idx {}".format(argbase + idx)
-							stack[argbase + idx] = dataRef(dataTable[arg["val"]])
-						else:
-							stack[argbase + idx] = (sym2arg(arg, idx)) # args in reversed order
-					next_gadget = next_gadget + 1
-					# request ESP lift.
-					stack[next_gadget] = esplift(len(action["args"]))
-					next_gadget = next_gadget + len(action["args"]) + 1
+				ftype = isBuiltIn(action["sym"])
+				if not ftype:
+					stack[next_gadget] = sym2retaddr(action["sym"]) # addr to call.
+					if action["args"]:
+						argbase = next_gadget + 2
+						for idx, arg in enumerate(action["args"]):
+							if arg["type"] == "sym" and arg["val"] in dataTable:
+								print "[compile] Resolving str variable {}".format(rts(arg))
+								print "[compile] * stored at payload idx {}".format(argbase + idx)
+								stack[argbase + idx] = dataRef(dataTable[arg["val"]])
+							else:
+								stack[argbase + idx] = sym2arg(arg, getImmRef(idx, "constant_numerical", None)) # args in reversed order
+						next_gadget = next_gadget + 1
+						# request ESP lift.
+						stack[next_gadget] = esplift(len(action["args"]))
+						next_gadget = next_gadget + len(action["args"]) + 1
+					else:
+						# no ESP lift required. Just tick forward to the next gadget.
+						next_gadget = next_gadget + 1
 				else:
-					# no ESP lift required. Just tick forward to the next gadget.
-					next_gadget = next_gadget + 1
+					# built in! see what we got.
+					if ftype == "std":
+						reserve(stack, next_gadget + 1) # no arguments.
+						# the 'crop' standard functions.
+						f_args = action["args"]
+						if action["sym"]["val"] == "mem_write":
+							stack[next_gadget] = dataWriteRef(f_args[0], f_args[1])
+						next_gadget = next_gadget + 1 
+					print 'uh'
 		printStackInfo(stack)
 		print "Next gadget: {}".format(next_gadget)
 	# Concatenate data region onto the stack.
@@ -142,21 +187,17 @@ def precompile_payload(actions, symtable, sequences, DEBUG=False):
 		stack.extend(map(lambda v: imm2constRef(getImmRef(v, "constant_string", None)), str2words(val, 4)))
 	return {"data_begins" : begin_data, "stack" : stack, "data" : data, "data_table" : dataTable}
 
-
-
-
 def find_esp_lift(gadgets, at_least):
 	# Look for all ESP lifts of atleast 'at_least'.
-	candidates = filter(lambda g: g["AMT"] > at_least, gadgets["esp_lift"])
+	candidates = filter(lambda g: g["AMT"] > at_least, gadgets)
 	# sort the list so that the most appropriate candidate is first.
 	# that is, the ESP lift which is closest to being 'at_least'.
-	candidates = sorted(candidates, key=attrgetter('AMT'), reverse=True)
+	candidates = sorted(candidates, key=itemgetter('AMT'))
 	return candidates
 
 def insert_padding(payload, at, amt):
 	# Inserts <amt> number of padding references into the payload at index <at>.
-	ses = payload["stack"]
-	for _ in range(amt): ses.insert(at, emptyPaddingRef())
+	for _ in range(amt): payload.insert(at, emptyPaddingRef())
 
 def resolveESPlifts(payload, gadgets, DEBUG=True):
 	stack_payload = payload["stack"]
@@ -164,7 +205,7 @@ def resolveESPlifts(payload, gadgets, DEBUG=True):
 	while i < len(stack_payload):
 		item = stack_payload[i]	
 		if item["roptype"] == "ESP_LFT":
-			at_least = item["ropdata"]
+			at_least = item["ropdata"]["val"]
 			candidates = find_esp_lift(gadgets, at_least)
 			if not candidates:
 				raise ROPCompilationError("No candidate sequence for {}".format(rtsse_short(item)))
@@ -175,9 +216,14 @@ def resolveESPlifts(payload, gadgets, DEBUG=True):
 				if overshoot:
 					print "ESP Lift too large ({} > {}). Requires {} padding.".format(lift["AMT"], at_least, overshoot)
 					# arguments will finish after "at_least", so we'll want to insert there.
-					insert_padding(stack_payload, i+at_least, amt)
-				item
+					insert_padding(stack_payload, i+at_least+1, overshoot)
+				# Patch in the correct address.
+				stack_payload[i] = stack_entry_gadget("ESP_LIFT", lift["vaddr"])
+				payload["data_begins"] += overshoot
 		i = i + 1
+
+def resolveVar():
+	pass
 
 
 def compile_payload(payload, gadgets, DEBUG=True):
@@ -190,7 +236,7 @@ def compile_payload(payload, gadgets, DEBUG=True):
 	esp = 0
 
 	# resolve all ESP lifts.
-	resolveESPlifts(payload, gadgets, DEBUG=DEBUG)
+	resolveESPlifts(payload, gadgets["esp_lift"], DEBUG=DEBUG)
 
 
 

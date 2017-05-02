@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 from process import process, ROPSyntaxError
-from tokenize import tokenize
 from flatten import flatten
 from validate import validate
 from analyze import generateSymTable, propogateConstants
@@ -9,6 +8,7 @@ from ropcompile import precompile_payload, compile_payload, ROPCompilationError
 from gadgets import gadgets
 from copy import deepcopy
 from tests import run_test_suite
+from gracoparser import CropParser
 from symbols import *
 
 import os
@@ -54,15 +54,14 @@ def main(args):
 
 		# Process Text into program actions.
 		try:
-			# Tokenize text
-			tokens = tokenize(corpus)
+			# Tokenize text using the grako parser.
+			parser = CropParser()
+			lines = parser.parse(corpus)
 			if DEBUG:
 				i = 0
-				for token in tokens:
-					val = "" if not "value" in token else token["value"]
-					print "[{}:{}] {} {}".format(token["location"]["line"], token["location"]["char"], token["name"], "(value='{}')".format(val) if val else "")
-					i = i + 1
+				for line in tokens: print line
 			print "[+] Tokenizer finished."
+
 
 			# Process tokens -> actions. First pass.
 			actions = process(tokens, corpus)
@@ -77,21 +76,21 @@ def main(args):
 			validate(actions)
 			print "[+] Validator finished."
 
-			# Propogate Constants
-			actions = propogateConstants(actions, DEBUG=DEBUG)
-			print "[+] Analyzer propogated constants."
+			flattening = True
+
+			while flattening:
+				# Propogate Constants
+				actions = propogateConstants(actions, DEBUG=True)
+				print "[-] Analyzer propogated constants..."
+				# Flatten actions to optimize them.
+				actions, flattening = flatten(actions, optimize=True, DEBUG=False)
+				print "[-] Flattened"
+			print "Flattening done."
+			print "Final propogation: "
+			actions = propogateConstants(actions, DEBUG=True)
 
 			if DEBUG:
-				print "---Stage 1.5 Compilation---"
-				for action in actions:
-					print rts(action)
-				print "------------------------------"
-
-			# Flatten actions to optimize them.
-			actions = flatten(actions, optimize=True, DEBUG=DEBUG)
-			print "[+] Flattener finished"
-
-			if DEBUG:
+				print ""
 				print "---Stage 2 Compilation---"
 				for action in actions:
 					print rts(action)
@@ -129,12 +128,12 @@ def main(args):
 			print "[+] Payload Generation: Precompiled payload. "
 
 			# load the gadgets from the binary.
+			print "[-] ropgadget: Loading gadgets..."
 			binary_gadgets = gadgets(fname)
 			num_gadgets_total = sum([len(binary_gadgets[k]) for k in binary_gadgets])
-			assert num_gadgets_total > 0, "Got no gadgets. Was your binary path ({}) correct?".format(fname)
-
-			print "[+] Loaded gadgets from {} (got {})".format(fname, num_gadgets_total)
-
+			
+			print "[+] ropgadget: Loaded gadgets from \"{}\" (got {})".format(fname, num_gadgets_total)
+			
 			# compile the actual payload.
 			full_payload = compile_payload(payload, binary_gadgets, DEBUG=DEBUG)
 			print "[+] Compiled final payload."

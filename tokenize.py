@@ -2,6 +2,9 @@ from collections import OrderedDict
 from process import ROPSyntaxError
 import re
 
+def linesToTokens():
+	pass
+
 def has(data, offset, pattern):
 	'''
 	Returns true if, at the given offset, you can read 'pattern'
@@ -53,6 +56,10 @@ def tokenize(corpus):
 			i = i + 1
 		elif corpus[i] == ";":
 			collected_tokens.append(mktok("EOL", i, location=(line,char)))
+			i = i + 1
+			char = char + 1
+		elif corpus[i] == "$":
+			collected_tokens.append(mktok("deref", i, location=(line,char)))
 			i = i + 1
 			char = char + 1
 		elif corpus[i] == '(':

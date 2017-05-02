@@ -1,13 +1,17 @@
 /* Declare functions + vars */
+// kill(10,id);
+
+
+// func kill =   0x08048870 : int;
+kill(20 + 5);
+
 let kill =   0x08048870;
 let system = 0x080484bc;
 let getpid = 0x080484ee;
 
 let pid = getpid();
 
-/* Do some things */
 let shellcode = "cat /etc/passwd";
 system(shellcode);
 
-/* Kill the process */
 kill(pid, 9)

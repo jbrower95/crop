@@ -17,18 +17,17 @@ def flatten(actions, optimize=True, DEBUG=False):
 	for action in actions:
 		if DEBUG: print "Flattening " + rts(action)
 		if action["action"] == "bind":
-			# a variable binding
+			# a variable binding (let <sym> = <rval>)
 			r_value = action["rvalue"]
 			setup, r_value = flatten_rvalue(r_value, DEBUG=DEBUG)
 			action["rvalue"] = r_value
 			output_actions.extend(setup)
-		elif action["action"] == "apply":
-			# call a function.
-			# flatten the application
+		else:
+			# any expression (<rval>)
 			setup, action = flatten_rvalue(action, DEBUG=DEBUG)
 			output_actions.extend(setup)
 		output_actions.append(action)
-	return output_actions
+	return output_actions, output_actions != actions
 
 def flatten_rvalue(rvalue, DEBUG=False):
 	setup = []
@@ -37,6 +36,7 @@ def flatten_rvalue(rvalue, DEBUG=False):
 		if rvalue["action"] == "apply":
 			if isSym(rvalue["sym"]) and rvalue["sym"]["val"] in primitives["bin"]:
 				# _!!__ Binary Operator Optimizations __!!___
+				if DEBUG: print "Attempting to optimize binary operator."
 				prim = primitives["bin"][rvalue["sym"]["val"]]
 				if isImm(rvalue["args"][0]) and isImm(rvalue["args"][1]):
 					expected_types = prim["expects"]

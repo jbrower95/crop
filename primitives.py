@@ -18,5 +18,15 @@ primitives = {
 			"expects" : ["constant_numerical", "constant_hexadecimal"],
 			"desc" : "*"
 		}
+	},
+	"std" : {
+		"mem_read" :{
+			"argc" : 2,
+			"desc" : "mem_read()"
+		},
+		"mem_write" : {
+			"argc" : 2,
+			"desc" : "mem_write()"
+		}
 	}
 }

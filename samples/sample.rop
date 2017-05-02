@@ -1,0 +1,30 @@
+/* ASLR enabled? */
+let aslrOffset = 0;
+
+/****************************/
+/* Declare functions + vars */
+/****************************/
+
+let kill   = 0x08048870 + aslrOffset;
+let system = 0x080484bc + aslrOffset;
+let getpid = 0x080484ee + aslrOffset;
+
+let pid = getpid();
+
+/****************************/
+/* Read / Write From Memory */
+/****************************/
+
+let val = mem_read(0x0804ffd3); // val := *((int *)0x0804ffd3);
+mem_write(0x0804ffd3, val); // *((int *)0x0804ffd3) = 14;
+
+/******************/
+/* Do some things */
+/******************/
+
+/* Maybe call system! */
+let shellcode = "cat /etc/passwd";
+system(shellcode);
+
+/* Kill the process */
+kill(pid, 9)
