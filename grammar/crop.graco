@@ -5,13 +5,10 @@
 @@eol_comments :: /\/\/.*?$/ 
 
 
-(* value types. keep it simple. *)
-EOL = ";" ;
-
-constant_string = /".*"/ ;
-constant_numerical = /[0-9]+/ ;
-constant_hexadecimal = /0x([a-f]|[A-F]|[0-9])+/ ;
-identifier =  /[a-zA-Z][A-Za-z0-9_]*/ ;
+constant_string = val:/".*"/ ;
+constant_numerical = val:/[0-9]+/ ;
+constant_hexadecimal = val:/0x([a-f]|[A-F]|[0-9])+/ ;
+identifier =  val:/[a-zA-Z][A-Za-z0-9_]*/ ;
 
 add_expr = expr '+' expr ;
 sub_expr = expr '-' expr ;
@@ -36,7 +33,8 @@ expr = ( constant_string
 
 complex_expr =  inline_application | function_application | expr;
 
-line = [bind | function_application | function_declaration] EOL;
+line = 
+[bind | function_application | function_declaration] ";";
 
 start = @+:line { @+:line }+  ;
 

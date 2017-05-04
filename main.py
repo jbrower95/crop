@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from process import process, ROPSyntaxError
+from process import processAST, ROPSyntaxError
 from flatten import flatten
 from validate import validate
 from analyze import generateSymTable, propogateConstants
@@ -56,15 +56,12 @@ def main(args):
 		try:
 			# Tokenize text using the grako parser.
 			parser = CropParser()
-			lines = parser.parse(corpus)
-			if DEBUG:
-				i = 0
-				for line in tokens: print line
-			print "[+] Tokenizer finished."
+			ast = parser.parse(corpus)
+			print "[+] Parser finished."
 
 
 			# Process tokens -> actions. First pass.
-			actions = process(tokens, corpus)
+			actions = processAST(ast)
 			print "[+] Lexer finished."
 
 			if DEBUG:

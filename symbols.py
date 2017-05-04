@@ -16,6 +16,7 @@ def rts(ref):
 			return "{} := {} {}".format(rts(ref["sym"]), rts(ref["rvalue"]), desc)
 	elif ref["type"] == "imm":
 		if ref["dtype"] == "constant_hexadecimal":
+			print ref
 			return "{}".format(hex(ref["val"]))
 		elif ref["dtype"] == "constant_string":
 			return "\"{}\"".format(ref["val"])
@@ -95,6 +96,20 @@ def makeBindAction(sym, rvalue, loc):
 	base = makeAction("bind", loc)
 	base["sym"] = getSymRef(sym.strip(), loc)
 	base["rvalue"] = rvalue
+	return base
+
+def makeBindActionRaw(sym, rvalue, loc):
+	base = makeAction("bind", loc)
+	base["sym"] = sym
+	base["rvalue"] = rvalue
+	return base
+
+def makeApplyActionRaw(sym, args, loc, argc=-1):
+	base = makeAction("apply", loc)
+	if argc == -1: argc = len(args)
+	base["sym"] = sym
+	base["argc"] = argc
+	base["args"] = args
 	return base
 
 def makeTemporaryBindAction(rvalue, loc):

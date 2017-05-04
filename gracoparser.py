@@ -77,24 +77,40 @@ class CropParser(Parser):
         )
 
     @graken()
-    def _EOL_(self):
-        self._token(';')
-
-    @graken()
     def _constant_string_(self):
         self._pattern(r'".*"')
+        self.name_last_node('val')
+        self.ast._define(
+            ['val'],
+            []
+        )
 
     @graken()
     def _constant_numerical_(self):
         self._pattern(r'[0-9]+')
+        self.name_last_node('val')
+        self.ast._define(
+            ['val'],
+            []
+        )
 
     @graken()
     def _constant_hexadecimal_(self):
         self._pattern(r'0x([a-f]|[A-F]|[0-9])+')
+        self.name_last_node('val')
+        self.ast._define(
+            ['val'],
+            []
+        )
 
     @graken()
     def _identifier_(self):
         self._pattern(r'[a-zA-Z][A-Za-z0-9_]*')
+        self.name_last_node('val')
+        self.ast._define(
+            ['val'],
+            []
+        )
 
     @graken()
     def _add_expr_(self):
@@ -240,7 +256,7 @@ class CropParser(Parser):
                 with self._option():
                     self._function_declaration_()
                 self._error('no available options')
-        self._EOL_()
+        self._token(';')
 
     @graken()
     def _start_(self):
@@ -254,9 +270,6 @@ class CropParser(Parser):
 
 
 class CropSemantics(object):
-    def EOL(self, ast):
-        return ast
-
     def constant_string(self, ast):
         return ast
 

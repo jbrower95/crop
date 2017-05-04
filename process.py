@@ -1,5 +1,6 @@
-from symbols import getRef, getImmRef, getSymRef, makeBindAction, makeApplyAction
+from symbols import *
 from primitives import primitives
+import grako
 
 #### Process the tokens into immediate forms.
 class ROPSyntaxError(Exception):
@@ -27,151 +28,92 @@ def assertRequiresTokens(tokens, amount, pos, msg):
 	remaining_tokens = len(tokens) - pos
 	if amount > remaining_tokens: raise ROPSyntaxError(msg, corpus, location)
 
-###############################################################################
 
-def process(tokens, text):
-	pos = 0
-	DEBUG = False
-
-	instructions = []
-
-	while pos < len(tokens):
-		token, pos = poptoken(tokens, pos)
-		ttype = token["name"]
-		print "Current token: " + ttype;
-
-		#### Handling Comments
-		if ttype == "single_line_comment" or ttype == "multi_line_comment":
-			# no reason to do anything.
-			if DEBUG: print "Processed comment: {}".format(token["value"])
-		#### Handling let binding
-		elif ttype == "let":
-			# let | <var> = <expr> |
-			assertRequiresTokens(tokens, 3, pos, "Expected let of the form: let <var> = <imm>")
-
-			# <var>: identifier
-			token, pos = poptoken(tokens, pos)
-			tloc = token["location"]
-			assertType(tokens, token, ["identifier"])
-			l_value = token["value"]
-			
-			# assignment
-			token, pos = poptoken(tokens, pos)
-			assertType(tokens, token, ["assign"])
-
-			# parse right-hand value.
-			r_value, pos = processRightValue(pos, tokens)
-
-			# Form the action for the compiler
-			instructions.append(makeBindAction(l_value, r_value, tloc))
-
-			# check for end of line, to finish statment.
-			token, pos = poptoken(tokens, pos)
-			assertEOL(tokens, token)
-		elif ttype == "EOL":
-			# blank line
-			continue
-		elif ttype == "EOF":
-			break
-		else:
-			# Could be a function call / rvalue in general. read it.
-			# -1 to include the current token in this parse.
-			val, pos = processRightValue(pos - 1, tokens)
-			instructions.append(val)
-
-	return instructions
-
-
-def processArgumentList(pos, tokens):
+def processAST(ast):
 	'''
-	Process a list of expressions, followed by ",".
+	returns a list of <actions> to give to the rest of the compiler.
 	'''
-	exprs = []
+	stmts = []
+	for statement in ast:
+		assert len(statement) == 2 and statement[1] == ";"
+		contents = statement[0]
+		contents_normalized = normalizeExpression(contents)
+		stmts.append(contents_normalized)
+	return stmts
 
-	if peektoken(tokens, pos)["type"] != "end_apply":
-		# no exprs in expr list.
-		return pos + 1, exprs
+# AST dict 2 location. convenience method returns (line, char) pairs.
+def ast2l(pi): 
+	try:
+		return {"line" : pi["parseinfo"].line, "char" : pi["parseinfo"].pos}
+	except TypeError as e:
+		print "Error parsing '{}' - {}".format(pi, e)
+		raise Exception("Uncaught.")
 
-	# Read at least one expression. <expr>
-	expr, pos = processExpression(pos, tokens)
-	exprs.append(expr)
-
-	# Potentially a variable number of exprs. <expr>, <expr>
-	while peektoken(tokens, pos)["type"] != "end_apply":
-		if peektoken(tokens, pos)["type"] == "arglist_separator":
-			# Skip over the ','.
-			_, pos = poptoken(tokens, pos)
-		else:
-			# Read an expression.
-			expr, pos = processExpression(pos, tokens)
-			exprs.append(expr)
-	return exprs
-
-def processExpression(pos, tokens):
+def normalizeExpression(ast):
 	'''
-	Processes a potentially complex R value of an expression recursively.
-	pos: position to start parsing from within the tokens.
-
-	Returns: An object whose contents describe a valid r-value. (keys: symbol | action | immediate)
+	Attempts to recursively normalize a Grako AST to fit our compiler spec.
+	Just renames some things.
 	'''
-	final_r_value = None
-	token, pos = poptoken(tokens, pos)
-	print "Processing: {}".format(token)
-	r_value = token["value"] if "value" in token else ""
-	r_value_t = token["name"];
-	assertType(tokens, token, ["constant_string", "constant_numerical", "constant_hexadecimal", "identifier"])
+	action = None
+	#print "Processing {}".format(ast)
+	root_loc = ast2l(ast)
+	ttype = ast["parseinfo"].rule
 
+	if ttype == "bind":
+		# Parse variable binding. (let <id> = <expr>)
+		identifier = ast["id"]
+		identifier_location = ast2l(identifier)
 
-def processRightValue(pos, tokens):
-	'''
-	Processes a potentially complex R value of an expression recursively.
-	pos: position to start parsing from within the tokens.
+		lvalue = normalizeExpression(identifier) 
+		rvalue = normalizeExpression(ast["rval"])
 
-	Returns: An object whose contents describe a valid r-value. (keys: symbol | action | immediate)
-	'''
-	final_r_value = None
-	token, pos = poptoken(tokens, pos)
-	print "Processing: {}".format(token)
-	r_value = token["value"]
-	r_value_t = token["name"]
-	assertType(tokens, token, ["constant_string", "constant_numerical", "constant_hexadecimal", "identifier"])
+		action = makeBindActionRaw(lvalue, rvalue, root_loc)
+	elif ttype == "function_application":
+		# 1. normalize all arguments. (filter for AST arguments only -- everything else is garbage.)
+		#
+		#  For example, on empty invocations (e.g call()), grako will leave behind
+		#  call : { args: ["(", ")"]}, which aren't even AST members. /shrug?
+		args = map(normalizeExpression, filter(lambda x: type(x) is grako.ast.AST, ast["args"]))
+		
+		# 2. normalize identifier / constant.
+		fid = normalizeExpression(ast["id"])
 
-	next_token = peektoken(tokens, pos)
-	if next_token["name"] in ["EOL", "arglist_separator", "end_apply"]:
-		# Simple expression - immediately terminated after.
-		final_r_value = getSymRef(r_value, next_token["location"]) if r_value_t == "identifier" else getImmRef(r_value, r_value_t, next_token["location"])
+		# 3. formulate action.
+		action = makeApplyActionRaw(fid, args, fid["loc"])
+	elif ttype == "inline_application":
+		print ast
+
+		expr = ast["bin_function"]
+		fargs = [expr[0], expr[2]] # <arg1> + <arg2>  --> 0, 2 are args
+		fargs = map(normalizeExpression, fargs)
+
+		fname = expr[1]
+		for operator in primitives["bin"]:
+			if fname == primitives["bin"][operator]["desc"]:
+				real_fname = operator
+				break
+		assert real_fname, "Unknown operator"
+
+		# TODO: This is technically wrong -- we should propogate metadata about binary operators.
+		inline_sym_ref = getSymRef(real_fname, root_loc)
+		action = makeApplyActionRaw(inline_sym_ref, fargs, root_loc)
+	elif ttype == "identifier":
+		# Parse identifiers.
+		action = getSymRef(ast["val"], ast2l(ast))
+	elif ttype in ["constant_numerical", "constant_hexadecimal", "constant_string"]:
+		# Parse constant types.
+		val = ast["val"]
+
+		# add ur own bases here lol
+		int_base = {
+			"constant_numerical" : 10,
+			"constant_hexadecimal" : 16
+		}
+
+		if ttype in ["constant_numerical", "constant_hexadecimal"]: 
+			val = int(val, int_base[ttype])
+		action = getImmRef(val, ttype, ast2l(ast))
 	else:
-		# we may have an arithmetic expression, or function application.
-		lvalue = r_value # initial read becomes l_value relative to rest of expansion.
-		is_identifier = token["name"] == "identifier"
-
-		token, pos = poptoken(tokens, pos)
-		assertType(tokens, token, ["ma_add", "ma_subtract", "ma_multiply", "start_apply", "end_apply", "EOL", "arglist_separator"])
-		if token["name"] == "start_apply":
-			floc = next_token["location"]
-			if not is_identifier:
-				raise ROPSyntaxError("Error: Cannot apply() on a literal.", token["location"])
-			# handle function application. (reference arguments)
-			arguments = []
-			next_token = peektoken(tokens, pos)
-			while next_token["name"] != "end_apply":
-				# parse an r-value (the arguments to a function are all r-values)
-				arg, pos = processRightValue(pos, tokens)
-				arguments.append(arg)
-
-				# check to see if application is over, otherwise parse another l_value.
-				next_token, pos = poptoken(tokens, pos)
-				assertType(tokens, next_token, ["arglist_separator", "end_apply"]) # , or )
-			if peektoken(tokens, pos)["name"] == "end_apply":
-				# pop it off.
-				token, pos = poptoken(tokens, pos)
-			final_r_value = makeApplyAction(lvalue.strip(),arguments, floc, argc=len(arguments))
-		elif token["name"] in primitives["bin"]:
-			# handles binary-infix primitives.
-			rvalue, pos = processRightValue(pos, tokens)
-			lvalue = getSymRef(lvalue, token["location"]) if is_identifier else getImmRef(lvalue, r_value_t, token["location"])
-			final_r_value = makeApplyAction(token["name"].strip(), [lvalue, rvalue], token["location"], argc=2)
-	return final_r_value, pos
-
-
+		print ast["parseinfo"].rule
+	return action
 
