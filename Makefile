@@ -1,4 +1,4 @@
-grammar: grammar/crop.graco
+grammar:
 	cd grammar && make
 debug: grammar
 	python main.py samples/sample.rop binaries/Elf-Linux-x86

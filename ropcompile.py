@@ -14,10 +14,10 @@ def unusedOrConstant(expr):
 
 def sym2retaddr(sym):
 	sym = deepcopy(sym)
-	print sym
 	if sym["dtype"] == "constant_numerical": 
 		sym["dtype"] = "constant_hexadecimal"
 	sym["roptype"] = "CALL"
+	sym["ropdtype"] = text_green(sym["roptype"])
 	return sym
 
 def sym2emptyref(sym, val="<empty>"):
@@ -46,13 +46,20 @@ def emptyPaddingRef():
 def dataReadRef(fromPlace):
 	sym["type"] = "builtin"
 	sym["roptype"] = "G_READ"
+	sym["ropdtype"] = text_green(sym["roptype"])
 	sym["ropdata"] = fromPlace
 	return sym
 
 def dataWriteRef(fromPlace, intoPlace):
 	sym = deepcopy(intoPlace)
 	sym["roptype"] = "G_WRITE"
+	sym["ropdtype"] = text_green(sym["roptype"])
 	sym["ropdata"] = fromPlace
+	return sym
+
+def absoluteDataRef(data):
+	sym = deepcopy(data)
+	sym["roptype"] = "ADDR"
 	return sym
 
 def emptyRef():
@@ -67,8 +74,8 @@ def imm2dataRef(sym):
 def imm2constRef(sym):
 	sym = deepcopy(sym)
 	sym["roptype"] = "CONST"
+	sym["ropdtype"] = text_bold(sym["roptype"])
 	return sym
-
 
 def dataRef(idx):
 	return imm2dataRef(getImmRef(idx, "constant_numerical", None))
@@ -79,6 +86,7 @@ def esplift(amt):
 def stack_entry_gadget(gtype, vaddr):
 	sym = getImmRef(vaddr, "constant_hexadecimal", None)
 	sym["roptype"] = "GADGET"
+	sym["ropdtype"] = text_blue(sym["roptype"])
 	sym["ropdata"] = getImmRef(gtype, "string", None)
 	return sym
 
@@ -100,6 +108,14 @@ def isBuiltIn(sym):
 		if sym["val"] in primitives[ftype]:
 			return ftype
 	return ""
+
+def dataRefToAbsoluteRef(payload, payload_base, item):
+	print "Resolving data item: {}".format(item)
+	which = item["val"]
+	data_region_offset = payload["data_begins"] * 4
+	data_offset = payload["data_locs"][which] * 4
+	data_location = payload_base + data_region_offset + data_offset
+	return absoluteDataRef(getImmRef(data_location, "constant_hexadecimal", None))
 
 def precompile_payload(actions, symtable, sequences, DEBUG=False):
 	'''
@@ -140,15 +156,21 @@ def precompile_payload(actions, symtable, sequences, DEBUG=False):
 				# Wait until an application to bind
 				print "[compile] saving {}".format(rts(action))
 				if isImm(action["rvalue"]) and action["rvalue"]["dtype"] == "constant_string":
-					print action
 					varsym = action["sym"]
 					print "[compile] Storing str value {} in data portion of stack.".format(varsym)
 					data.append(action["rvalue"]["val"])
 					dataTable[varsym["val"]] = len(data) - 1 
-				intermediateExprs.append(action)
+				else:
+					intermediateExprs.append(action)
 			elif action["action"] == "apply":
 				# See if anything needs to be bound
 				print "[compile] processing {}".format(rts(action))
+				if intermediateExprs:
+					print "[compile] expression {} required {} intermediate bindings.".format(rts(action), len(intermediateExprs))
+					for idx, expr in enumerate(intermediateExprs):
+						print "[{}]: {}".format(idx, rts(expr))
+					intermediateExprs = []
+
 				reserve(stack, next_gadget + 1 + len(action["args"]))
 				ftype = isBuiltIn(action["sym"])
 				if not ftype:
@@ -178,14 +200,20 @@ def precompile_payload(actions, symtable, sequences, DEBUG=False):
 						if action["sym"]["val"] == "mem_write":
 							stack[next_gadget] = dataWriteRef(f_args[0], f_args[1])
 						next_gadget = next_gadget + 1 
-					print 'uh'
 		printStackInfo(stack)
 		print "Next gadget: {}".format(next_gadget)
 	# Concatenate data region onto the stack.
 	begin_data = len(stack)
+	
+	var_locations = []
+	cur_location = 0
+
 	for val in data:
-		stack.extend(map(lambda v: imm2constRef(getImmRef(v, "constant_string", None)), str2words(val, 4)))
-	return {"data_begins" : begin_data, "stack" : stack, "data" : data, "data_table" : dataTable}
+		var_locations.append(cur_location)
+		var_words = str2words(val, 4)
+		stack.extend(map(lambda v: imm2constRef(getImmRef(v, "constant_string", None)), var_words))
+		cur_location += len(var_words)
+	return {"data_begins" : begin_data, "stack" : stack, "data" : data, "data_table" : dataTable, "data_locs" : var_locations}
 
 def find_esp_lift(gadgets, at_least):
 	# Look for all ESP lifts of atleast 'at_least'.
@@ -222,25 +250,33 @@ def resolveESPlifts(payload, gadgets, DEBUG=True):
 				payload["data_begins"] += overshoot
 		i = i + 1
 
-def resolveVar():
+def resolveVars(payload, gadgets, DEBUG=True):
 	pass
 
+def resolveDataRefs(payload, stack_base):
+	stack_payload = payload["stack"]
+	i = 0
+	while i < len(stack_payload):
+		item = stack_payload[i]	
+		if item["roptype"] == "DATA":
+			# patch in a data reference.
+			print "[compiler] Patching data reference @ position {}".format(i)
+			stack_payload[i] = dataRefToAbsoluteRef(payload, stack_base, item)
+		i = i + 1
 
-def compile_payload(payload, gadgets, DEBUG=True):
+def compile_payload(payload, gadgets, buffer_base, DEBUG=True):
 	'''
 	Given the previous stage compilation, and the available gadgets, compile
 	a payload.
 	'''
-	
-	# start ESP at 0.
-	esp = 0
-
 	# resolve all ESP lifts.
 	resolveESPlifts(payload, gadgets["esp_lift"], DEBUG=DEBUG)
 
+	# resolve all variables that needed additional setup.
+	resolveVars(payload, gadgets, DEBUG=DEBUG)
 
-
-
+	# resolve all references to data.
+	resolveDataRefs(payload, buffer_base)
 
 	return payload
 

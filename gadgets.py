@@ -45,8 +45,8 @@ P_ADD = r"add"
 P_SUB = r"sub"
 P_ESP_LFT = r"(add esp)|(pop)"
 
-P_MEM_READ = r"mov (?P<amt>dword|word|byte) ptr (?P<from>\[(eax|esi|edi|esp|ebx|ebp|edx|ecx)\]), (?P<reg>eax|esi|edi|esp|ebx|ebp|edx|ecx), "
-P_MEM_WRITE = r"mov (?P<reg>eax|esi|edi|esp|ebx|ebp|edx|ecx), (?P<amt>dword|word|byte) ptr (?P<from>\[(eax|esi|edi|esp|ebx|ebp|edx|ecx)\])"
+P_MEM_WRITE = r"mov (?P<amt>[d|q]word|word|byte) ptr (?P<from>\[(eax|esi|edi|esp|ebx|ebp|edx|ecx)\]), (?P<to>eax|esi|edi|esp|ebx|ebp|edx|ecx)"
+P_MEM_READ = r"mov (?P<to>eax|esi|edi|esp|ebx|ebp|edx|ecx), (?P<amt>[d|q]word|word|byte) ptr (?P<from>\[(eax|esi|edi|esp|ebx|ebp|edx|ecx)\])"
 
 TYPES = {
 	"reg_load" : lambda disasm: re.search(P_IS_REG_LOAD, disasm),		# gadgets to load reg from stack
@@ -69,13 +69,14 @@ def parseEspLift(disasm, data):
 	if espAdds:
 		data["AMT"] += sum(map(lambda ref: int(ref, 16), espAdds))
 
-def parseMemWrite(disasm, data):
+def parseMemOp(disasm, data):
 	writes = re.finditer(P_MEM_WRITE, disasm)
 	for write in writes:
-		reg = write.group('reg')
+		reg = write.group('to')
 		from_reg = write.group('from')
 		amt = write.group('amt')
-		if not data["REGS"]: data["REGS"] = set()
+		if not "LOAD" in data or not data["LOAD"]: data["LOAD"] = set()
+		data["LOAD"].add((from_reg, reg)) # indicating reading or writing from reg -> reg
 		data["AMT"] = amt
 
 
@@ -84,8 +85,8 @@ PARSERS = {
 	"add" : lambda disasm, data: re.search(P_ADD, disasm),									# gadgets to perform addition on register
 	"sub" :  lambda disasm, data: re.search(P_SUB, disasm),									# gadgets to perform subtraction on register
 	"esp_lift" : parseEspLift,								# gadgets to lift ESP
-	"mem_read" :  parseMemWrite,								# gadgets to read word from memory into reg
-	"mem_write" : parseMemWrite,								# gadgets to write word from reg into memory.
+	"mem_read" :  parseMemOp,								# gadgets to read word from memory into reg
+	"mem_write" : parseMemOp,								# gadgets to write word from reg into memory.
 	"other" : lambda disasm, data: True
 }
 
@@ -133,5 +134,6 @@ def gadgets(path):
 	print "---------------------------"
 	print_gadgets_from = "mem_write"
 	for gadget in gadgets[print_gadgets_from]:
-		print gadget["gadget"]
+		print "{}\n writing ability: {}\n".format(gadget["gadget"],gadget["LOAD"])
+	assert False
 	return gadgets

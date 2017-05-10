@@ -1,5 +1,32 @@
 import uuid
 
+# Taken from <http://stackoverflow.com/questions/287871/print-in-terminal-with-colors-using-python>
+class TERM_COLORS:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def text_blue(text):
+	return TERM_COLORS.OKBLUE + text + TERM_COLORS.ENDC
+
+def text_red(text):
+	return TERM_COLORS.WARNING + text + TERM_COLORS.ENDC
+
+def text_green(text):
+	return TERM_COLORS.OKGREEN + text + TERM_COLORS.ENDC
+
+def text_underline(text):
+	return TERM_COLORS.UNDERLINE + text + TERM_COLORS.ENDC
+
+def text_bold(text):
+	return TERM_COLORS.BOLD + text + TERM_COLORS.ENDC
+
+
 ## Symbol vs. Immediate References 
 def getRef(reftype, val, loc):
 	return {"type" : reftype, "val" : val, "loc" : loc}
@@ -16,7 +43,6 @@ def rts(ref):
 			return "{} := {} {}".format(rts(ref["sym"]), rts(ref["rvalue"]), desc)
 	elif ref["type"] == "imm":
 		if ref["dtype"] == "constant_hexadecimal":
-			print ref
 			return "{}".format(hex(ref["val"]))
 		elif ref["dtype"] == "constant_string":
 			return "\"{}\"".format(ref["val"])
@@ -61,7 +87,22 @@ def refRequiresTemp(ref):
 	return ref["type"] == "action" and ref["action"] == "apply"
 
 def str2words(s, WORD_SIZE):
-	s = s + "." # to save room for null byte
+	'''
+	Implements PKCS#7-style padding, for storing strings on the stack.
+
+	Pads with 01
+			  02 02
+			  03 03 03
+			  04 04 04 04
+	Maximum padding is 0k 0k 0k 0k, for WORD_SIZE=k, since block size is one word.
+	'''
+	remainder = WORD_SIZE - (len(s) % WORD_SIZE)
+	if remainder == 0:
+		s = s + (' ' * WORD_SIZE) # Add a word of padding.
+		remainder = WORD_SIZE # if it matched perfectly, add a whole block of padding.
+	else:
+		s = s + (' ' * remainder) # padd to be an exact multiple.
+	s = s[:len(s) - remainder] + (chr(ord('1') - 1 + remainder) * remainder)
 	# Assume each character is a byte, and each cell is a word.
 	assert WORD_SIZE > 0 and WORD_SIZE % 4 == 0, "Word size must be a multiple of 4 and non-zero."
 	return [s[0+i:WORD_SIZE+i] for i in range(0, len(s), WORD_SIZE)]
@@ -76,17 +117,17 @@ def printStackPayload(payload, ESP=-1):
 	'''
 	stack_entries = payload["stack"]
 	data_divider = payload["data_begins"]
-	print "---------payload----------"
+	print "---------{}----------------------".format(text_bold("payload"))
 	i = 0
 	for se in reversed(stack_entries):
 		print rtsse(se),
 		if ESP == (len(stack_entries) - i - 1):
-			print "<---- (%esp)  ",
+			print text_green("<---- (%esp)  "),
 		if data_divider == (len(stack_entries) - i - 1):
-			print "<---- (data region)  ",
+			print text_blue("<---- (data region)  "),
 		print ""
 		i = i + 1
-	print "--------------------------"
+	print "--------------------------------------"
 
 ## Function applications
 def makeAction(action, loc):

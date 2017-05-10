@@ -10,25 +10,6 @@ class ROPSyntaxError(Exception):
         self.location = location
         self.message = message
 
-def poptoken(tokens, pos): 
-	return tokens[pos], pos + 1
-
-def peektoken(tokens, pos):
-	return tokens[pos]
-
-def assertType(tokens, token, ttypes):
-	if token["name"] not in ttypes:
-		raise ROPSyntaxError("Expected token of type {}, got {}".format(ttypes, token["name"]), token["location"])
-
-def assertEOL(tokens, token):
-	if token["name"] != "EOL":
-		raise ROPSyntaxError("Expected token of type ';' (EOL), got {}".format(token["name"]), token["location"])
-
-def assertRequiresTokens(tokens, amount, pos, msg):
-	remaining_tokens = len(tokens) - pos
-	if amount > remaining_tokens: raise ROPSyntaxError(msg, corpus, location)
-
-
 def processAST(ast):
 	'''
 	returns a list of <actions> to give to the rest of the compiler.
@@ -105,14 +86,13 @@ def normalizeExpression(ast):
 		val = ast["val"]
 
 		# add ur own bases here lol
-		int_base = {
-			"constant_numerical" : 10,
-			"constant_hexadecimal" : 16
+		mappers = {
+			"constant_numerical" : lambda x: int(x, 10),
+			"constant_hexadecimal" : lambda x: int(x, 16),
+			"constant_string" : lambda x: x[1:][:-1]
 		}
-
-		if ttype in ["constant_numerical", "constant_hexadecimal"]: 
-			val = int(val, int_base[ttype])
-		action = getImmRef(val, ttype, ast2l(ast))
+		
+		action = getImmRef(mappers[ttype](val), ttype, ast2l(ast))
 	else:
 		print ast["parseinfo"].rule
 	return action

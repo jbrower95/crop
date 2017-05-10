@@ -8,6 +8,7 @@ let aslrOffset = 0;
 let kill   = 0x08048870 + aslrOffset;
 let system = 0x080484bc + aslrOffset;
 let getpid = 0x080484ee + aslrOffset;
+let exit   = 0x080400b4 + aslrOffset;
 
 let pid = getpid();
 
@@ -27,4 +28,7 @@ let shellcode = "cat /etc/passwd";
 system(shellcode);
 
 /* Kill the process */
-kill(pid, 9)
+kill(pid, 9);
+
+/* Exit to the null address. */
+exit(0);

